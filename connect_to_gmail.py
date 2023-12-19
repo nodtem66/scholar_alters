@@ -18,7 +18,7 @@ SCOPES = [
     'https://www.googleapis.com/auth/gmail.readonly',
     'https://www.googleapis.com/auth/gmail.modify',
 ]
-CLIENTSECRETS_LOCATION = r'.\data\credentials.json'
+CLIENTSECRETS_LOCATION = r'./credentials.json'
 
 
 def get_service(data_folder='.'):
@@ -40,7 +40,7 @@ def get_service(data_folder='.'):
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
                 CLIENTSECRETS_LOCATION, SCOPES)
-            creds = flow.run_local_server()
+            creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
         with open(token_filename, 'wb') as token:
             pickle.dump(creds, token)
@@ -122,9 +122,9 @@ if __name__ == '__main__':
     service = get_service()
     
     # Get all the messages with labels
-    labels = GetLabelsId(service,'me',['Papers','UNREAD'])
+    labels = GetLabelsId(service,'me',['Subscribe/Gscholar'])
     messages = ListMessagesWithLabels(service,"me",labels)
-    print ('Found $d messages'%len(messages))
+    print (f'Found {len(messages)} messages')
     
     
     
