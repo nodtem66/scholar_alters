@@ -7,6 +7,7 @@ from __future__ import print_function
 import pickle
 import os
 from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from apiclient import errors as error
@@ -29,10 +30,9 @@ def get_service(data_folder='.'):
     # The file token.pickle stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
-    token_filename = os.path.join(data_folder,'token.pickle')
+    token_filename = os.path.join(data_folder,'token.json')
     if os.path.exists(token_filename):
-        with open(token_filename, 'rb') as token:
-            creds = pickle.load(token)
+        creds = Credentials.from_authorized_user_file(token_filename, SCOPES)
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
@@ -42,9 +42,8 @@ def get_service(data_folder='.'):
                 CLIENTSECRETS_LOCATION, SCOPES)
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
-        with open(token_filename, 'wb') as token:
-            pickle.dump(creds, token)
-
+        with open(token_filename, 'w') as token:
+            token.write(creds.to_json())
     service = build('gmail', 'v1', credentials=creds)
     return service
 

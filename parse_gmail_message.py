@@ -4,13 +4,12 @@ Open emails and aggregate them together
 """
 
 from connect_to_gmail import  *
-import base64
 from html.parser import HTMLParser
-import webbrowser
 from os import path as ospath
 from os import makedirs
 import pickle
 import re
+import pandas as pd
 
 DATA_FOLDER = r'./data'
 PAPERS_LABEL = 'Subscribe/Gscholar'
@@ -33,20 +32,20 @@ class Paper:
     self.link = link
     self.idx = ''
     self.email_title = email_title
-    self.chosen = 0
+    self.year = None
+    self.tldr = ''
+    self.status = 0
 
   def add_title(self,data):
     self.title += clean_text(data) + " "
-    self.idx = self.title.strip().upper()
+    self.idx = re.sub(r'[:;]', ' ', self.title.strip('. ').upper())
 
   def add_authors(self,data):
     self.authors += clean_text(data) + " "
+    self.year = data.replace(" ", "").split(",")[-1]
 
   def add_data(self,data):
     self.data += clean_text(data) + " "
-
-  def set_chosen(self):
-    self.chosen = 1
 
   def __eq__ (self, paper):
     return self.idx == paper.idx
@@ -114,6 +113,7 @@ class PapersHTMLParser(HTMLParser):
       elif self.is_data:
         self.papers[-1].add_data(data)
 
+from typing_extensions import Self
 
 class PaperAggregator:
   def __init__ (self):
@@ -125,87 +125,32 @@ class PaperAggregator:
     except ValueError: # Paper not in the list
       self.paper_list.append(paper)
 
+  def merge(self, new_papers: Self):
+    for paper in new_papers.paper_list:
+      self.add(paper)
+
+  def load_excel(self, filename):
+    df = pd.read_excel(filename)
+    for idx, row in df.iterrows():
+      paper = Paper(row['email_title'], row['link'])
+      paper.title = row['title']
+      paper.data = row['data']
+      paper.authors = row['authors']
+      paper.idx = row['idx']
+      paper.year = row['year']
+      paper.tldr = row['tldr']
+      paper.status = row['status']
+      self.paper_list.append(paper)
+
+  def to_dataframe(self):
+    records = []
+    for paper in self.paper_list:
+      records.append([paper.title, paper.authors, paper.email_title, paper.link, paper.tldr, paper.year, paper.idx, paper.data, paper.status])
+    return pd.DataFrame(records, columns=['title','authors','email_title','link','tldr','year','idx','data', 'status'])
+
   def remove(self, paper):
     try:
       idx = self.paper_list.index(paper)
       self.paper_list.pop(idx)
     except ValueError: # Paper not in the list
       pass
-
-
-if __name__ == '__main__':
-  # Create data folder if not exists
-  if not ospath.exists(DATA_FOLDER):
-    makedirs(DATA_FOLDER)
-
-  # Call the Gmail API
-  service = get_service(DATA_FOLDER)
-
-  # Get all the messages with labels
-  labels = GetLabelsId(service,'me',[PAPERS_LABEL,'UNREAD'])
-  messages = ListMessagesWithLabels(service,"me",labels)
-  print (f'Found {len(messages)} messages')
-
-  # Parse the mails
-  pa = PaperAggregator()
-
-  for msg in messages:
-    msg_content = GetMessage(service, "me", msg['id'])
-    try:
-      msg_str = base64.urlsafe_b64decode(msg_content['payload']['body']['data'].encode('utf-8'))
-    except KeyError:
-      continue
-
-    msg_title = ''
-    for h in msg_content['payload']['headers']:
-      if h['name'] == 'Subject':
-        msg_title = h['value']
-    parser = PapersHTMLParser(msg_title)
-    parser.feed(str(msg_str))
-
-    for paper in parser.papers:
-      pa.add(paper)
-
-  # Remove previously seen papers
-  pickle_file = ospath.join(DATA_FOLDER, PREV_PAPERS_FILE)
-  if ospath.exists(pickle_file):
-    with open(pickle_file,'rb') as pkl:
-      old_pa = pickle.load(pkl)
-      for paper in old_pa.paper_list:
-        pa.remove(paper)
-
-  # Sort by number of refernece mails
-  print (f'Found {len(pa.paper_list)} papers')
-
-  # User Input
-  counter = 1
-  good_papers = []
-  web = webbrowser.get()
-  for paper in pa.paper_list:
-    print ('\n\n' + '-'*100 + '\n\n')
-    print(f'Paper {counter} / {len(pa.paper_list)}\n')
-    print(paper)
-    response = input("Interesting? (y/n) ")
-    if response.strip()[:1].lower() == 'y':
-      good_papers.append(paper)
-      paper.set_chosen()
-      web.open(paper.link)
-    counter+=1
-
-  print("\n\nNow processing...")
-
-  #Write current papers
-  with open(pickle_file,'wb') as pkl:
-    pickle.dump(pa,pkl)
-
-  # Mark all as read
-  body = {"addLabelIds": [], "removeLabelIds": ["UNREAD","INBOX"]}
-  for msg in messages:
-    service.users().messages().modify(userId="me", id=msg['id'], body=body).execute()
-
-  # Archive the results for later learning
-  with open(ospath.join(DATA_FOLDER, ARCHIVE_TSV),'a', encoding="utf-8") as f:
-    for paper in pa.paper_list:
-      f.write(f'{paper.title}\t{paper.authors}\t{paper.chosen}\n')
-
-

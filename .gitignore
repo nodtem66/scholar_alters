@@ -1,5 +1,6 @@
 credentials.json
 token.json
 token.pickle
+*_key.txt
 data/
 __pycache__/
