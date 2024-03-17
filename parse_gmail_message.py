@@ -3,13 +3,12 @@
 Open emails and aggregate them together
 """
 
-from connect_to_gmail import  *
 from html.parser import HTMLParser
-from os import path as ospath
-from os import makedirs
-import pickle
 import re
 import pandas as pd
+from datetime import datetime, timezone
+
+get_datetime = lambda: datetime.now(timezone.utc).isoformat()
 
 DATA_FOLDER = r'./data'
 PAPERS_LABEL = 'Subscribe/Gscholar'
@@ -35,6 +34,8 @@ class Paper:
     self.year = None
     self.tldr = ''
     self.status = 0
+    self.updated_at = None
+    self.created_at = None
 
   def add_title(self,data):
     self.title += clean_text(data) + " "
@@ -81,8 +82,10 @@ class PapersHTMLParser(HTMLParser):
           link = attr[1]
         elif key == 'class' and attr[1] == 'gse_alrt_title':
           self.is_title = True
-      if len(link) > 0 and self.is_title: 
+      if len(link) > 0 and self.is_title:
         self.papers.append(Paper(self.email_title, link))
+        self.papers[-1].created_at = get_datetime()
+        self.papers[-1].updated_at = get_datetime()
 
     elif tag == 'div':
       for attr in attrs:
@@ -130,7 +133,15 @@ class PaperAggregator:
       self.add(paper)
 
   def load_excel(self, filename):
-    df = pd.read_excel(filename)
+    df = pd.read_excel(filename, dtype={'idx': str, 'status': int})
+    df.fillna('', inplace=True)
+    self.df_to_paper(df)
+
+  def load_csv(self, filename):
+    df = pd.read_csv(filename, sep=',')
+    self.df_to_paper(df)
+
+  def df_to_paper(self, df):
     for idx, row in df.iterrows():
       paper = Paper(row['email_title'], row['link'])
       paper.title = row['title']
@@ -139,14 +150,19 @@ class PaperAggregator:
       paper.idx = row['idx']
       paper.year = row['year']
       paper.tldr = row['tldr']
-      paper.status = row['status']
+      paper.status = int(row['status'])
+      paper.created_at = row['created_at']
+      paper.updated_at = row['updated_at']
       self.paper_list.append(paper)
 
   def to_dataframe(self):
     records = []
     for paper in self.paper_list:
-      records.append([paper.title, paper.authors, paper.email_title, paper.link, paper.tldr, paper.year, paper.idx, paper.data, paper.status])
-    return pd.DataFrame(records, columns=['title','authors','email_title','link','tldr','year','idx','data', 'status'])
+      records.append([paper.title, paper.authors, paper.email_title, paper.link, paper.tldr, paper.year, paper.idx, paper.data, paper.status, paper.created_at, paper.updated_at])
+    df = pd.DataFrame(records, columns=['title','authors','email_title','link','tldr','year','idx','data', 'status', 'created_at', 'updated_at'])
+    df = df.astype({'status': 'object'})
+    df.fillna('', inplace=True)
+    return df
 
   def remove(self, paper):
     try:
