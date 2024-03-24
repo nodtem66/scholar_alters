@@ -40,7 +40,8 @@ def get_creds(data_folder='.'):
     else:
       flow = InstalledAppFlow.from_client_secrets_file(
         CLIENTSECRETS_LOCATION, SCOPES)
-      creds = flow.run_local_server(port=0)
+      flow.authorization_url(prompt='consent')
+      creds = flow.run_local_server(port=0, access_type='offline', include_granted_scopes=True, enable_granular_consent=True)
   # Save the credentials for the next run
   with open(token_filename, 'w') as token:
     token.write(creds.to_json())
@@ -56,7 +57,7 @@ def get_sheets_service(credentials):
   return build('sheets', 'v4', credentials=credentials)
 
 # Gmail service
-def ListMessagesWithLabels(service, user_id, label_ids=[]):
+def ListMessagesWithLabels(service, user_id, label_ids=[], maxResults=100):
   """List all Messages of the user's mailbox with label_ids applied.
 
   Args:
@@ -77,6 +78,8 @@ def ListMessagesWithLabels(service, user_id, label_ids=[]):
       messages.extend(response['messages'])
 
     while 'nextPageToken' in response:
+      if maxResults > 0 and len(messages) >= maxResults:
+        break
       page_token = response['nextPageToken']
       response = service.users().messages().list(userId=user_id,
                           labelIds=label_ids,
@@ -97,6 +100,7 @@ def GetLabelsId (service, user_id, label_names=[]):
     for label in labels:
       if label['name']==name:
         label_ids.append(label['id'])
+
   return label_ids
 
 

@@ -17,3 +17,6 @@ Need:
 - Google Sheet API
 
 URL: https://www.appsheet.com/start/7402d751-abe0-425d-891a-50971b51147c
+
+TODO:
+- Change index to UUID

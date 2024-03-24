@@ -3,10 +3,13 @@
 Open emails and aggregate them together
 """
 
-from html.parser import HTMLParser
+import email
+import json
 import re
-import pandas as pd
 from datetime import datetime, timezone
+
+import pandas as pd
+from bs4 import BeautifulSoup
 
 get_datetime = lambda: datetime.now(timezone.utc).isoformat()
 
@@ -20,11 +23,12 @@ def clean_text(st):
   if st[0] == '[':
     st = st[st.find(']')+1:]
   st = re.sub(r'(\\[xX]\w\w)+','', st)
+  st = re.sub(r'(\\[uU]\w)+','', st)
   return st.strip()
 
 
 class Paper:
-  def __init__(self, email_title, link):
+  def __init__(self, email_title, link=''):
     self.title = ''
     self.data = ''
     self.authors = ''
@@ -38,85 +42,120 @@ class Paper:
     self.created_at = None
 
   def add_title(self,data):
-    self.title += clean_text(data) + " "
-    self.idx = re.sub(r'[:;]', ' ', self.title.strip('. ').upper())
+    self.title += clean_text(data)
+    self.idx = re.sub(r'[:;]', ' ', self.title.strip('. ').upper()) 
 
   def add_authors(self,data):
-    self.authors += clean_text(data) + " "
-    self.year = data.replace(" ", "").split(",")[-1]
+    self.authors += clean_text(data)
+    try:
+      self.year = int(data.replace(" ", "").split(",")[-1])
+    except:
+      pass
 
   def add_data(self,data):
-    self.data += clean_text(data) + " "
+    self.data += clean_text(data)
 
   def __eq__ (self, paper):
     return self.idx == paper.idx
 
   def __str__ (self):
-    return f'{self.title}\nAuthors: {self.authors}\nEmail: {self.email_title}\n'
+    return json.dumps(self.__dict__, indent=2)
 
   def __repr__ (self):
-    return self.title
+    return self.__str__()
 
-
-class PapersHTMLParser(HTMLParser):
-  STATE_DEFAULT = 0
-  STATE_COLLECTED_TITLE = 1
-  STATE_COLLECTED_AUTHORS = 2
-  STATE_COLLECTED_DATA = 3
-
+class PapersHTMLParser():
   def __init__ (self, email_title):
-    HTMLParser.__init__(self)
-    self.is_title = False
-    self.is_data = False
-    self.is_authors = False
-    self.state = self.STATE_DEFAULT
     self.email_title = email_title
     self.papers = []
 
-  def handle_starttag(self, tag, attrs):
-    if tag == 'a':
-      link = ''
-      for attr in attrs:
-        key = attr[0].lower()
-        if key == 'href':
-          link = attr[1]
-        elif key == 'class' and attr[1] == 'gse_alrt_title':
-          self.is_title = True
-      if len(link) > 0 and self.is_title:
-        self.papers.append(Paper(self.email_title, link))
-        self.papers[-1].created_at = get_datetime()
-        self.papers[-1].updated_at = get_datetime()
+  def parse(self, msg):
+    soup = BeautifulSoup(msg, 'lxml', from_encoding='utf-8')
+    sections = soup.find_all(class_='gse_alrt_sni')
+    for s in sections:
+      paper = Paper(self.email_title)
+      parent = s.find_parent('div')
+      a_title = parent.find(class_='gse_alrt_title')
+      paper.add_data(s.text)
+      paper.add_title(a_title.text)
+      paper.add_authors(a_title.parent.next_sibling.text)
+      paper.link = a_title['href']
+      self.papers.append(paper)
+  
+  def check_valid_papers(self):
+    for paper in self.papers:
+      assert paper.idx != '', f'Paper {paper.title} has no idx'
+      assert paper.title != '', f'Paper {paper.idx} has no title'
+      assert paper.link != '', f'Paper {paper.idx} has no link'
+      assert paper.authors != '', f'Paper {paper.idx} has no authors'
+      assert paper.data != '', f'Paper {paper.idx} has no data'
+  
+  def __str__ (self):
+    return str(self.papers)
+  
+  def __repr__(self) -> str:
+    return self.__str__()
 
-    elif tag == 'div':
-      for attr in attrs:
-        key = attr[0].lower()
-        if key == 'class' and attr[1] == 'gse_alrt_sni':
-          self.is_data = True
-      if self.state == self.STATE_COLLECTED_TITLE and not self.is_data:
-        self.is_authors = True
+# class PapersHTMLParser(HTMLParser):
+#   STATE_DEFAULT = 0
+#   STATE_COLLECTED_TITLE = 1
+#   STATE_COLLECTED_AUTHORS = 2
+#   STATE_COLLECTED_DATA = 3
 
-  def handle_endtag(self, tag):
-    if tag == 'a' and self.is_title:
-      self.is_title = False
-      self.state = self.STATE_COLLECTED_TITLE
-    elif tag == 'div':
-      if self.is_authors:
-        self.is_authors = False
-        self.state = self.STATE_COLLECTED_AUTHORS
-      elif self.is_data:
-        self.is_data = False
-        self.state = self.STATE_COLLECTED_DATA
+#   def __init__ (self, email_title):
+#     HTMLParser.__init__(self)
+#     self.is_title = False
+#     self.is_data = False
+#     self.is_authors = False
+#     self.state = self.STATE_DEFAULT
+#     self.email_title = email_title
+#     self.papers = []
 
-  def handle_data(self, data):
-    if len(self.papers) > 0:
-      if self.is_title:
-        self.papers[-1].add_title(data)
-      elif self.is_authors:
-        self.papers[-1].add_authors(data)
-      elif self.is_data:
-        self.papers[-1].add_data(data)
+#   def handle_starttag(self, tag, attrs):
+#     if tag == 'a':
+#       link = ''
+#       for attr in attrs:
+#         key = attr[0].lower()
+#         if key == 'href':
+#           link = attr[1]
+#         elif key == 'class' and attr[1] == 'gse_alrt_title':
+#           self.is_title = True
+#       if len(link) > 0 and self.is_title:
+#         self.papers.append(Paper(self.email_title, link))
+#         self.papers[-1].created_at = get_datetime()
+#         self.papers[-1].updated_at = get_datetime()
+
+#     elif tag == 'div':
+#       for attr in attrs:
+#         key = attr[0].lower()
+#         if key == 'class' and attr[1] == 'gse_alrt_sni':
+#           self.is_data = True
+#       if self.state == self.STATE_COLLECTED_TITLE and not self.is_data:
+#         self.is_authors = True
+
+#   def handle_endtag(self, tag):
+#     if tag == 'a' and self.is_title:
+#       self.is_title = False
+#       self.state = self.STATE_COLLECTED_TITLE
+#     elif tag == 'div':
+#       if self.is_authors:
+#         self.is_authors = False
+#         self.state = self.STATE_COLLECTED_AUTHORS
+#       elif self.is_data:
+#         self.is_data = False
+#         self.state = self.STATE_COLLECTED_DATA
+
+#   def handle_data(self, data):
+#     if len(self.papers) > 0:
+#       if self.is_title:
+#         self.papers[-1].add_title(data)
+#       elif self.is_authors:
+#         self.papers[-1].add_authors(data)
+#       elif self.is_data:
+#         self.papers[-1].add_data(data)
 
 from typing_extensions import Self
+
 
 class PaperAggregator:
   def __init__ (self):
@@ -140,6 +179,10 @@ class PaperAggregator:
   def load_csv(self, filename):
     df = pd.read_csv(filename, sep=',')
     self.df_to_paper(df)
+  
+  def clean_missing_author(self):
+    new_paper_list = [paper for paper in self.paper_list if paper.authors != '']
+    self.paper_list = new_paper_list
 
   def df_to_paper(self, df):
     for idx, row in df.iterrows():
