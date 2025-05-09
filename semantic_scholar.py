@@ -1,11 +1,13 @@
 # Query TLDR from semantic scholar
-import urllib
-import requests
-from pathlib import Path
-import time
-from tqdm import tqdm
-from datetime import datetime, timezone
 import re
+import time
+import urllib
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pandas as pd
+import requests
+from tqdm import tqdm
 
 # Quick function to get datetime
 get_datetime = lambda: datetime.now(timezone.utc).isoformat()
@@ -13,9 +15,16 @@ get_datetime = lambda: datetime.now(timezone.utc).isoformat()
 SEMANTIC_SCHOLAR_API_KEY = Path('./semantic_scholar_api_key.txt').read_text().strip()
 
 def query_tldr_all_papers(df):
-  #new_papers = [datetime.fromisoformat(d2) - datetime.fromisoformat(d1) < timedelta(days=14) for (_, d1, d2) in df[['created_at', 'updated_at']].itertuples() ]
-  #new_papers = pd.Series(new_papers)
+  
+  #
   query_df = df[(df['tldr'].eq('') | df['tldr'].isnull()) & (df['status'] == 0)]
+  new_papers = [
+    # Created less than 2 weeks ago and updated more than 1 week ago
+    (datetime.now(timezone.utc) - datetime.fromisoformat(d1)) < timedelta(days=14) and
+    (datetime.now(timezone.utc) - datetime.fromisoformat(d2)) > timedelta(days=7) for (_, d1, d2) in query_df[['created_at', 'updated_at']].itertuples() ]
+  new_papers = pd.Series(new_papers)
+  #query_df = query_df[datetime.now(timezone.utc) - datetime.fromisoformat(query_df['created_at']) < timedelta(days=14)]
+  #query_df = query_df[datetime.now(timezone.utc) - datetime.fromisoformat(query_df['updated_at']) > timedelta(days=7)]
   print(f"Querying TLDR for {query_df.shape[0]} papers")
   titles = [
     re.sub('[^A-Za-z0-9 ]+', ' ', title.strip())
